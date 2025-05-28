@@ -7,16 +7,47 @@ import {
   InteractionType,
   MessageComponentTypes,
   verifyKeyMiddleware,
+  WebhookEventType,
+  WebhookType,
 } from "discord-interactions";
-import { getRandomEmoji, DiscordRequest } from "./utils.js";
-
+import chat from "./functions/chat.js";
+import { DiscordRequest } from "./utils.js";
 // Create an express app
 const app = express();
 // Get port, or default to 3000
 const PORT = process.env.PORT || 3000;
 // To keep track of our active games
-const activeGames = {};
 
+const waitableChat = async ({ input, token }) => {
+  const endpoint = `webhooks/${process.env.APP_ID}/${token}/messages/@original`;
+  try {
+    const responseMessage = await chat({
+      input,
+      useHistory: true,
+    });
+    console.log("input", input);
+    console.log("Response from chat function:", responseMessage);
+    await DiscordRequest(endpoint, {
+      method: "PATCH",
+      body: {
+        content: responseMessage,
+      },
+    });
+    console.log("Response from chat function:", responseMessage);
+  } catch (error) {
+    console.error("Error in chat function:", error.message);
+    try {
+      await DiscordRequest(endpoint, {
+        method: "PATCH",
+        body: {
+          content: "ไม่สามารถตอบได้อ่ะ",
+        },
+      });
+    } catch (error) {
+      console.error("ไม่ได้อ่ะ เลิกเถอะ", error.message);
+    }
+  }
+};
 /**
  * Interactions endpoint URL where Discord will send HTTP requests
  * Parse request body and verifies incoming requests using discord-interactions package
@@ -26,8 +57,7 @@ app.post(
   verifyKeyMiddleware(process.env.PUBLIC_KEY),
   async function (req, res) {
     // Interaction id, type and data
-    const { id, type, data } = req.body;
-    console.log("Received interaction:", req.body);
+    const { id, type, data, token, message } = req.body;
     /**
      * Handle verification requests
      */
@@ -42,23 +72,25 @@ app.post(
     if (type === InteractionType.APPLICATION_COMMAND) {
       const { name } = data;
 
+      console.log("Message:", message);
+      console.log("Data:", data);
+
       // "test" command
       if (name === "mint") {
         const objectName = req.body.data.options[0];
-        console.log("Mint command triggered with object:", objectName);
+        const commandValue = objectName?.value;
+        console.log("Mint command triggered with object:", commandValue);
         // Send a message into the channel where command was triggered from
+
+        const responseMessage = waitableChat({
+          input: commandValue,
+          //  interactionId: data.id,
+          token,
+        });
+        console.log("Response from chat function:", responseMessage);
+
         return res.send({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            flags: InteractionResponseFlags.IS_COMPONENTS_V2,
-            components: [
-              {
-                type: MessageComponentTypes.TEXT_DISPLAY,
-                // Fetches a random emoji to send from a helper function
-                content: `hello world ${getRandomEmoji()}`,
-              },
-            ],
-          },
+          type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
         });
       }
 
